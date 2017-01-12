@@ -1,0 +1,122 @@
+---
+title: 'How well do they do it: Barbell Exercises'
+author: "Christopher Hughes"
+date: "12 January 2017"
+output: html_document
+---
+
+## Introduction
+
+In this project, the goal was to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to identify different movements. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. Two different predictive models were used and tested with cross validation.
+
+```{r echo=FALSE, message=FALSE}
+set.seed(1234)
+
+library(rattle)
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+library(RColorBrewer)
+```
+
+## Pre-processing
+
+Before we select and implement a suitable model for prediction, the data must be downloaded and cleaned. The Pre-processing steps through downloading the data and filtering the variables, outline the decisions made in cleaning the data.
+
+### Download
+
+Data is downloaded in .csv format and stored locally.
+
+```{r}
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile="./data/training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile="./data/test.csv")
+training_raw <- read.csv("./data/training.csv")
+test_raw <- read.csv("./data/test.csv")
+```
+
+### Filtering Variables
+
+We'll be filtering the data on three criteria:
+
+* Near Zero Variance: any variables that return that are deemed to have sufficiently low variance are removed from the training data.
+* Incomplete data: Variables that contain NA values are also removed as these will have a negative impact on the model accuracy.
+* Remove metadata: The first 7 variables in the training data were removed as they included metadata e.g. subject name, timestamp, etc. These would not enhance the predictive model.
+
+The same will be applied to the test data so that it is processed ready for prediction.
+
+````{r}
+# 1. Near Zero Variance
+NearZV <- nearZeroVar(training_raw, saveMetrics = TRUE)
+training01 <- training_raw[, !NearZV$nzv]
+test01 <- test_raw[, !NearZV$nzv]
+# 2. Incomplete data
+col_NA <- (colSums(is.na(training01)) == 0)
+training02 <- training01[, col_NA]
+test02 <- test01[, col_NA]
+# 3. Remove metadata
+training <- training02[,7:length(training02)]
+test <- test02[,7:length(training02)]
+```
+
+Now we have a suitably clean data set for creating models with. We are left with 53 variables that can be used. All of these will be used in the predictive models.
+
+```{r}
+dim(training)
+```
+
+
+## Cross validation: Partitioning the Data
+
+The test data must now be left until the model is finished.
+
+The training data is then split into a training and validation data set, 80% and 20%, respectively. The validation set can be used to check the out of training error of the model before predicting the test data values. The validation set should allow us to find a more accurate prediction for the out of sample error on the test data.
+The out-of-bag error rates from the models will be an accurate estimate of the out of sample error rate as the data used to produce it is excluded from the model building process.
+
+```{r}
+partition <- createDataPartition(training$classe, p = 0.80, list = FALSE)
+training <- training[partition, ]
+validation <- training[-partition, ]
+```
+
+So, we now have three data sets:
+
+* Training
+* Validation
+* Test
+
+Time for some modelling!
+
+## Building Models
+
+There are lots of possible models at this stage but this project looks two of the most effective: random forests and generalised Boosted Regression Models.
+
+### Using a Random forest
+
+We will start by looking at the random forest algorithm to create a model using cross validation. The number of trees was chosen to be 100 as a trade-off between time and accuracy.
+
+```{r message=FALSE}
+model_rf <- train(classe ~ ., data = training, method = "rf", trControl = trainControl(method = "cv", 5), ntree = 100)
+model_rf
+predict_rf <- predict(model_rf, validation)
+confuse_rf <- confusionMatrix(validation$classe, predict_rf)
+```
+
+
+### Using a Generalised Boosted Regression Models
+
+```{r message=FALSE, eval=FALSE}
+model_gbm <- train(classe~., data = training, method ="gbm", verbose = FALSE)
+model_gbm
+predict_gbm <- predict(model_gbm, validation)
+confusionMatrix(validation$classe, predict_gbm)
+```
+
+As the random forest has a lower predicted out of sample error, this model will be used for predicting the values of the test data.
+
+## Prediction
+
+```{r}
+predict_test <- predict(model_rf, newdata=test)
+predict_test
+```
